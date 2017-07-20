@@ -15,35 +15,53 @@ class ViewController: UIViewController, SFSpeechRecognizerDelegate {
     
     let audioEngine = AVAudioEngine()
 
+    var recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
+    
+    var recognitionTask = SFSpeechRecognitionTask()
+    
     @IBOutlet var txtViewTranscription: UITextView!
     @IBOutlet var btnRecord: UIButton!
     @IBAction func btnRecordPressed(_ sender: Any) {
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(AVAudioSessionCategoryRecord)
-            try audioSession.setMode(AVAudioSessionModeMeasurement)
-            try audioSession.setActive(true, with: .notifyOthersOnDeactivation)
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            recognitionRequest.endAudio()
+            recognitionTask.cancel()
             
-            let recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-            if let inputNode = audioEngine.inputNode {
-                recognitionRequest.shouldReportPartialResults = true
-                let recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest, resultHandler: { (result, error) in
-                    if let result = result {
-                        self.txtViewTranscription.text = result.bestTranscription.formattedString
-                        
-                    }
-                })
-                let recordingFormat = inputNode.outputFormat(forBus: 0)
+            btnRecord.setTitle("Record", for: [])
+        } else {
+            btnRecord.setTitle("Stop", for: [])
+            do {
+                let audioSession = AVAudioSession.sharedInstance()
+                try audioSession.setCategory(AVAudioSessionCategoryRecord)
+                try audioSession.setMode(AVAudioSessionModeMeasurement)
+                try audioSession.setActive(true, with: .notifyOthersOnDeactivation)
+            
                 
-                inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat, block: { (buffer, when) in
-                    recognitionRequest.append(buffer)
-                })
                 
-                audioEngine.prepare()
-                try audioEngine.start()
-            }
-        } catch {
+                if let inputNode = audioEngine.inputNode {
+                    recognitionRequest.shouldReportPartialResults = true
+                    recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest, resultHandler: { (result, error) in
+                        if let result = result {
+                            self.txtViewTranscription.text = result.bestTranscription.formattedString
+                            if result.isFinal {
+                                self.audioEngine.stop()
+                                inputNode.removeTap(onBus: 0)
+                                self.btnRecord.setTitle("Record", for: [])
+                            }
+                        }
+                    })
+                    let recordingFormat = inputNode.outputFormat(forBus: 0)
+                    inputNode.removeTap(onBus: 0)
+                    inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat, block: { (buffer, when) in
+                        self.recognitionRequest.append(buffer)
+                    })
+                
+                    audioEngine.prepare()
+                    try audioEngine.start()
+                }
+            } catch {
             //error handling
+            }
         }
     }
     
@@ -51,6 +69,9 @@ class ViewController: UIViewController, SFSpeechRecognizerDelegate {
         super.viewDidLoad()
         // Do any additional setup after loading the view, typically from a nib.
         speechRecognizer.delegate = self
+        
+        btnRecord.isEnabled = false
+        
         SFSpeechRecognizer.requestAuthorization { (authStatus) in
             OperationQueue.main.addOperation {
                 switch authStatus {
